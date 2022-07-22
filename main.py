@@ -1,13 +1,11 @@
 import argparse
-from ast import Store
 import logging
 import logging.config
 import random
 import os
 import sys
-import glob
 
-from typing import List, Tuple
+from typing import Tuple
 
 # should setup root logger before importing any relevant libraries.
 logging.basicConfig(
@@ -99,7 +97,7 @@ def get_parser():
         choices=['codeemb', 'descemb'], 
         help='name of the encoder model in the --input2emb_model'
     )
-    parser.add_arugment('--structure', choices=[None, 'hi', 'fl'] type=str, default=None)
+    parser.add_argument('--structure', choices=[None, 'hi', 'fl'], type=str, default=None)
     parser.add_argument(
         '--pred_model', type=str, required=False, default=None,
         help='name of the encoder model in the --pred_model'
@@ -193,7 +191,7 @@ def main():
     model_configs = {
     'SAnD': ('fl', 'codeemb', 'select'), 
     'Rajikomar' : ('hi', 'codeemb', 'entire'),
-    'DescEmb' : ('hi', 'descemb', 'select') 
+    'DescEmb' : ('hi', 'descemb', 'select'), 
     'UniHPF': ('hi', 'descemb', 'entire')  
     }
 
@@ -228,23 +226,23 @@ def main():
 
     #seed pivotting
     mp.set_sharing_strategy('file_system')
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if use multi-GPU
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)  # if use multi-GPU
     torch.backends.cudnn.deterministic = True
         
     if args.train_task == 'predict':
         from trainers import BaseTrainer as Trainer
     elif args.train_task == 'pretrain' and args.pretrain_task == 'w2v':
         from trainers import W2VTrainer as Trainer
-    elif args.train_task == 'pretrain' and args.pretrain_task == 'mlm'::
+    elif args.train_task == 'pretrain' and args.pretrain_task == 'mlm':
         from trainers import MLMTranier as Trainer
     else:
         raise NotImplementedError("Need proper trainer")
 
-    trainer=Trainer(args, seed)
+    trainer=Trainer(args, args.seed)
     trainer.train()
     logger.info("done training")
 

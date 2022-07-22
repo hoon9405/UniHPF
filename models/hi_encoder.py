@@ -1,13 +1,8 @@
 import logging
-from pdb import post_mortem
-
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-from transformers import AutoConfig, AutoModel
 from models import register_model, MODEL_REGISTRY
-from models.transformer import PositionalEncoding
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +27,11 @@ class EventEncoder(nn.Module):
         self.layer_norm = nn.LayerNorm(args.embed_dim, eps=1e-12)
 
         self.post_encode_proj = (
-            nn.Linear(bert_model_config[args.bert_model][1], self.pred_dim)
+            nn.Linear(args.embed_dim, self.pred_dim)
         )
    
         self.mlm_proj = (
-            nn.Linear(bert_model_config[args.bert_model][1], 28996)
+            nn.Linear(args.embed_dim, 28996)
             if args.pretrain_task == "text_encoder_mlm" else None
         )
 

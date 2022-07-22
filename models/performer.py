@@ -1,9 +1,4 @@
-import math
-
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 from performer_pytorch import Performer
 from models import register_model
 from models.transformer import PositionalEncoding

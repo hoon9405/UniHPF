@@ -1,6 +1,3 @@
-from tkinter.messagebox import NO
-from tkinter import N
-from builtins import NotImplemented
 import torch.nn.functional as F
 import torch.nn as nn
 
@@ -88,12 +85,3 @@ class PretrainLoss(BaseLoss):
             )
         
         return sum(Loss)
-       
-    
-class NoteLoss(BaseLoss):
-    def __init__(self, args):
-        super().__init__(args=args)
-
-        self.args = args
-    def __call__(self):
-        return None

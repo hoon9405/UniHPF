@@ -1,8 +1,5 @@
-from builtins import setattr
-from numpy import argmax
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.preprocessing import MultiLabelBinarizer
-import torch
 import numpy as np
 
 class BaseMetric(object):
@@ -171,42 +168,6 @@ class W2VMetric(BaseMetric):
     
         return epoch_dict
     
-    @property
-    def compare(self):
-        return 'decrease' if self.update_target == 'loss' else 'increase'
-    
-    @property
-    def update_target(self):
-        return self._update_target
-    
-    @property
-    def acc(self):
-        return self.correct / self.total if self.total > 0 else float("nan")
-
-class NoteMetric(BaseMetric):
-    def __init__(self, target='acc'):
-        self._update_target = target
-        self.reset()
-
-    def reset(self):
-        self.loss = 0
-        self.total = 0
-        self.correct = 0
-
-    def update(self, loss, total, correct):
-        self.loss += loss
-        self.total += total
-        self.correct += correct
-
-    def get_epoch_dict(self, total_iter):
-        epoch_dict = {
-            'loss': self.loss / total_iter,
-            'acc': self.acc
-        }
-        self.reset()
-       
-        return epoch_dict
-
     @property
     def compare(self):
         return 'decrease' if self.update_target == 'loss' else 'increase'

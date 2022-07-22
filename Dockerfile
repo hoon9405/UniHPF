@@ -10,8 +10,8 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
     rm -f Miniconda3-latest-Linux-x86_64.sh
 ENV LC_ALL=C.UTF-8
 
-RUN /root/miniconda3/bin/conda install -y pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 ignite -c pytorch  &&\
-    /root/miniconda3/bin/conda install -y pandas pytz tqdm scikit-learn wandb transformers  pytorch-lightning tk easydict gensim -c conda-forge
+RUN /root/miniconda3/bin/conda install -y pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 -c pytorch  &&\
+    /root/miniconda3/bin/conda install -y pandas pytz tqdm scikit-learn wandb transformers  pytorch-lightning  easydict gensim -c conda-forge
 ENV PATH=/root/miniconda3/bin:$PATH
 RUN pip install performer-pytorch -y 
 

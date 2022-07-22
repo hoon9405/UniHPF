@@ -1,8 +1,6 @@
 import logging
-
 import torch
 import torch.nn as nn
-
 from utils import utils
 from utils.data_utils import compute_mask_indices
 from models import register_model, MODEL_REGISTRY

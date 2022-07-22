@@ -144,15 +144,6 @@ class MLMTranier(object):
                 mlm_prob=self.args.mlm_prob,
                 max_seq_len=self.args.max_seq_len,
             )
-        elif  self.args.train_task=='note':
-            raise NotImplementedError
-            # dataset = NoteDataset(
-            # args=self.args,
-            # data=data,
-            # split=split,
-            # vocab=vocab,
-            # seed=seed
-            # )
         else:
             raise NotImplementedError
             #datasets_list.append(_dataset)

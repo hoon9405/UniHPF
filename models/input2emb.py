@@ -1,16 +1,6 @@
-import logging
-
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from transformers import AutoConfig, AutoModel
-
 from models import register_model
 from models.transformer import PositionalEncoding
-
-import pickle as pkl
-import os
-import numpy as np
 
 @register_model("codeemb")
 class CodeEmb(nn.Module):
@@ -164,7 +154,6 @@ class DescEmb(nn.Module):
         ) if self.args.dpe else None
 
         max_len = args.max_word_len if '_' in args.input2emb_model else args.max_seq_len
-        max_len = args.note_max_seq_len if args.note_max_seq_len > max_len else max_len
 
         self.pos_encoder = PositionalEncoding(  
             args.embed_dim, args.dropout, max_len
