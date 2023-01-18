@@ -1,0 +1,300 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.13.3
+    code_path: code/main.py
+    framework: huggingface
+    huggingface_version: 4.22.1
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    python_version: 3.9.13
+    start_time: 1672782129.988521
+    t:
+      1:
+      - 1
+      - 5
+      - 11
+      - 49
+      - 51
+      - 53
+      - 55
+      2:
+      - 1
+      - 5
+      - 11
+      - 49
+      - 51
+      - 53
+      - 55
+      3:
+      - 14
+      - 16
+      - 23
+      4: 3.9.13
+      5: 0.13.3
+      6: 4.22.1
+      8:
+      - 5
+auto_resume:
+  desc: null
+  value: false
+batch_size:
+  desc: null
+  value: 16
+best_checkpoint_metric:
+  desc: null
+  value: loss
+checkpoint_prefix:
+  desc: null
+  value: train_mimiciii_mimiciv_100_None_42_
+checkpoint_save_path:
+  desc: null
+  value: /nfs_edlab/ghhur/UniHPF/output/scratch/textbase_whole_hi
+codebook_negatives:
+  desc: null
+  value: 0
+criterion:
+  desc: null
+  value: prediction
+distributed_rank:
+  desc: null
+  value: 0
+dp:
+  desc: null
+  value: false
+dpe:
+  desc: null
+  value: true
+dropout:
+  desc: null
+  value: 0.2
+dropout_features:
+  desc: null
+  value: 0.1
+dropout_input:
+  desc: null
+  value: 0.1
+edlab_resume:
+  desc: null
+  value: false
+emb_type:
+  desc: null
+  value: textbase
+embed_dim:
+  desc: null
+  value: 128
+eval_src:
+  desc: null
+  value:
+  - mimiciii
+  - mimiciv
+  - mimiciii_mimiciv
+feature:
+  desc: null
+  value: whole
+feature_grad_mult:
+  desc: null
+  value: 0.1
+final_dim:
+  desc: null
+  value: 128
+ft_pt_task:
+  desc: null
+  value: null
+input_path:
+  desc: null
+  value: /nfs_edlab/ghhur/UniHPF/input
+latent_groups:
+  desc: null
+  value: 2
+latent_temp:
+  desc: null
+  value:
+  - 2
+  - 0.5
+  - 0.999995
+latent_vars:
+  desc: null
+  value: 320
+load_checkpoint:
+  desc: null
+  value: null
+log_interval:
+  desc: null
+  value: 10
+log_prefix:
+  desc: null
+  value: scratch_None_textbase_hi
+logit_temp:
+  desc: null
+  value: 0.1
+lr:
+  desc: null
+  value: 0.0003
+map_layers:
+  desc: null
+  value: 1
+mask_length:
+  desc: null
+  value: 1
+mask_list:
+  desc: null
+  value:
+  - dpe
+  - input
+  - type
+mask_min_space:
+  desc: null
+  value: 0
+mask_other:
+  desc: null
+  value: 0
+mask_prob:
+  desc: null
+  value: 0.65
+mask_selection:
+  desc: null
+  value: static
+max_epoch:
+  desc: null
+  value: 300
+max_seq_len:
+  desc: null
+  value: 256
+max_word_len:
+  desc: null
+  value: 128
+maximize_best_checkpoint_metric:
+  desc: null
+  value: false
+mlm_prob:
+  desc: null
+  value: 0.15
+model:
+  desc: null
+  value: ehr_model
+n_heads:
+  desc: null
+  value: 4
+n_layers:
+  desc: null
+  value: 2
+no_mask_overlap:
+  desc: null
+  value: false
+num_negatives:
+  desc: null
+  value: 25
+output_path:
+  desc: null
+  value: /nfs_edlab/ghhur/UniHPF/output
+patience:
+  desc: null
+  value: 10
+perp_weight:
+  desc: null
+  value: 0.1
+pooled_eval:
+  desc: null
+  value: true
+port:
+  desc: null
+  value: '12355'
+pos_enc:
+  desc: null
+  value: true
+pred_dim:
+  desc: null
+  value: 128
+pred_model:
+  desc: null
+  value: eventaggregator
+pred_pooling:
+  desc: null
+  value: mean
+pred_tasks:
+  desc: null
+  value:
+  - Task(name='mortality', num_classes=1, property='binary')
+  - Task(name='long_term_mortality', num_classes=1, property='binary')
+  - Task(name='los_3day', num_classes=1, property='binary')
+  - Task(name='los_7day', num_classes=1, property='binary')
+  - Task(name='readmission', num_classes=1, property='binary')
+  - Task(name='final_acuity', num_classes=8, property='multi-class')
+  - Task(name='imminent_discharge', num_classes=8, property='multi-class')
+  - Task(name='diagnosis', num_classes=17, property='multi-label')
+  - Task(name='creatinine', num_classes=5, property='multi-class')
+  - Task(name='bilirubin', num_classes=5, property='multi-class')
+  - Task(name='platelets', num_classes=5, property='multi-class')
+  - Task(name='wbc', num_classes=3, property='multi-class')
+pretrain_task:
+  desc: null
+  value: null
+pretrained_path:
+  desc: null
+  value: null
+pt_src:
+  desc: null
+  value: mimiciii
+ratio:
+  desc: null
+  value: '100'
+reg_weight:
+  desc: null
+  value: 5
+resume:
+  desc: null
+  value: false
+resume_path:
+  desc: null
+  value: null
+seed:
+  desc: null
+  value:
+  - 42
+start_epoch:
+  desc: null
+  value: 1
+structure:
+  desc: null
+  value: hi
+sub_id:
+  desc: null
+  value: z3uc839q
+text_post_proj:
+  desc: null
+  value: false
+time_embed:
+  desc: null
+  value: null
+train_src:
+  desc: null
+  value: mimiciii_mimiciv
+train_task:
+  desc: null
+  value: scratch
+type_token:
+  desc: null
+  value: true
+valid_subset:
+  desc: null
+  value:
+  - valid
+  - test
+wandb:
+  desc: null
+  value: true
+wandb_entity:
+  desc: null
+  value: hoon9405
+wandb_project_name:
+  desc: null
+  value: test
+wandb_run_name:
+  desc: null
+  value: train_mimiciii_mimiciv_100_None_42_
+world_size:
+  desc: null
+  value: 1

@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from models import register_model
 
@@ -7,36 +8,12 @@ class PredOutPutLayer(nn.Module):
         super().__init__()
         self.args = args
 
-        self.multi_label_dict = {
-            'mimic3':{
-                'dx':18,
-                'im_disch':17,
-                'fi_ac':18},
-            'eicu':{
-                'dx':18,
-                'im_disch':8,
-                'fi_ac':9},
-             'mimic4':{
-                 'dx':18,
-                 'im_disch':17,
-                 'fi_ac':18},
-            'mimic3_eicu':{
-                  'dx':18,
-                   },
-             'mimic3_mimic4':{
-                   'dx':18,
-                   'im_disch':17,
-                    'fi_ac':18},
-             'mimic3_mimic4_eicu':{
-                     'dx':18,
-                     },
-              }
+        self.final_proj = nn.ModuleDict()
 
-        self.final_proj = nn.Linear(
-            args.pred_dim,
-            self.multi_label_dict[args.src_data][args.pred_target] 
-            if args.pred_target in ['dx', 'fi_ac', 'im_disch'] else 1 
-        ) 
+        for task in self.args.pred_tasks:
+            self.final_proj[task.name] = nn.Linear(
+                args.pred_dim, task.num_classes
+            )
    
     @classmethod
     def build_model(cls, args):
@@ -49,16 +26,20 @@ class PredOutPutLayer(nn.Module):
         if self.args.pred_pooling =='cls':
             x = x[:, 0, :]
         elif self.args.pred_pooling =='mean':
-            if '_' in self.args.input2emb_model: 
+            if self.args.structure =='hi': 
                 mask = ~input_ids[:, :, 1].eq(102)
             else:
                 mask = (input_ids!=0)
             mask = mask.unsqueeze(dim=2).to(x.device).expand(B, S, self.args.pred_dim)
             x = (x*mask).sum(dim=1)/mask.sum(dim=1)
             #x = x.mean(dim=1)
-        output = self.final_proj(x) # B, E -> B, 1
-        output = output.squeeze()
-        return {'pred_output': output}
+        
+        preds = dict()
+
+        for k, layer in self.final_proj.items():
+            preds[k] = layer(x)
+
+        return {'pred_output': preds}
 
 
 @register_model("mlmout")
@@ -67,80 +48,10 @@ class MLMOutPutLayer(nn.Module):
         super().__init__()
 
         self.args = args
-        if self.args.input2emb_model.startswith('codeemb'):
-            input_index_size_dict = {
-                'mimic3' : {#6543
-                    'select' : {'cc': 5372, 'ct':6532},
-                    'whole' :{'cc': 9017, 'ct':10389}
-                },
-                'eicu' : {
-                    'select' : {'cc': 3971, 'ct':4151},
-                    'whole' :{'cc': 5462, 'ct':6305}
-                },
-                'mimic4' : {
-                    'select' : {'cc': 5869, 'ct':5581},
-                    'whole' :{'cc': 10241, 'ct':9568}
-                },
-                
-                # pooled
-                'mimic3_eicu':{
-                    'select' : {'cc': 5869},
-                    'whole' :{'cc': 10241},
-                },
-                
-                'mimic3_mimic4':{
-                    'select' : {'cc': 7771},
-                    'whole' :{'cc': 15356}
-                },
-                'mimic4_eicu':{
-                    'select' : {'cc': 9813},
-                    'whole' :{'cc': 15676},
-                },
-                'mimic3_mimic4_eicu':{
-                    'select' : {'cc': 11716},
-                    'whole' :{'cc': 20792},
-                }
-            }
 
-            type_index_size_dict = {
-                'mimic3' : {
-                    'select' : {'cc': 17, 'ct':9},
-                    'whole' :{'cc': 48, 'ct':10}
-                },
-                'eicu' : {
-                    'select' : {'cc':16, 'ct':10},
-                    'whole' :{'cc': 28, 'ct':10}
-                },
-                'mimic4' : {
-                    'select' : {'cc': 16, 'ct':10},
-                    'whole' :{'cc': 42, 'ct':9}
-                },
-                
-                # pooled
-                'mimic3_eicu':{
-                        'select' : {'cc': 26},
-                        'whole' :{'cc': 69},
-                    },
-                
-                'mimic3_mimic4':{
-                    'select' : {'cc': 16},
-                    'whole' :{'cc': 53}
-                },
-                'mimic4_eicu':{
-                    'select' : {'cc': 25},
-                    'whole' :{'cc': 63},
-                },
-                'mimic3_mimic4_eicu':{
-                    'select' : {'cc': 26},
-                    'whole' :{'cc': 75},
-                }
-            }
-            input_index_size = input_index_size_dict[args.src_data][args.feature][args.column_embed]
-            type_index_size = type_index_size_dict[args.src_data][args.feature][args.column_embed]
-        else:
-            input_index_size = 28996
-            type_index_size = 14
-            dpe_index_size = 25
+        input_index_size = 28996
+        type_index_size = 7
+        dpe_index_size = 16 # for pooled
         
         self.input_ids_out = nn.Linear(
             args.embed_dim,

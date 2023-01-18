@@ -315,16 +315,3 @@ Note that `--ratio` indicates proportion of target dataset for few-shot learning
 
 # License
 This repository is MIT-lincensed.
-
-<!-- # Citation
-Please cite as:
-```
-@misc{hur2022unihpf,
-      title={UniHPF: Universal Healthcare Predictive Framework with Zero Domain Knowledge}, 
-      author={Kyunghoon Hur and Jungwoo Oh and Junu Kim and Min Jae Lee and Eunbyeol Choi and Jiyoun Kim and Seong-Eun Moon and Young-Hak Kim and Edward Choi},
-      year={2022},
-      eprint={2207.09858},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
-}
-``` -->

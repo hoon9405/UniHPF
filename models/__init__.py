@@ -25,12 +25,6 @@ def register_model(name):
     New model types can be added with the :func:`register_model`
     function decorator.
 
-    For example:
-
-        @register_model('descemb_bert')
-        class BertTextEncoder(nn.Module):
-            (...)
-
     Args:
         name (str): the name of the model
     """

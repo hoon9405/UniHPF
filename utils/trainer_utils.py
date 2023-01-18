@@ -10,8 +10,36 @@ import wandb
 from torch.nn.parallel.data_parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 import torch.nn as nn
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class Task:
+    name: str
+    num_classes: int
+    property: str
+
+
+def get_task(pred_task, src_data):
+    final_acuity = 6
+    imminent_discharge = 6
+    diagnosis = 17
+
+    return {
+        'mortality': Task('mortality', 1, 'binary'),
+        'long_term_mortality': Task('long_term_mortality', 1, 'binary'), 
+        'los_3day': Task('los_3day', 1, 'binary'), 
+        'los_7day': Task('los_7day', 1, 'binary'),
+        'readmission': Task('readmission', 1, 'binary'),
+        'final_acuity': Task('final_acuity', final_acuity, 'multi-class'), 
+        'imminent_discharge': Task('imminent_discharge', imminent_discharge, 'multi-class'), 
+        'diagnosis': Task('diagnosis', diagnosis, 'multi-label'), 
+        'creatinine': Task('creatinine', 5, 'multi-class'), 
+        'bilirubin': Task('bilirubin', 5, 'multi-class'), 
+        'platelets': Task('platelets', 5, 'multi-class'),
+        'wbc': Task('wbc', 3, 'multi-class'),
+    }[pred_task]
 
 class WarmupConstantSchedule(torch.optim.lr_scheduler.LambdaLR):
     def __init__(self, optimizer, warmup_steps, last_epoch=-1):
@@ -103,7 +131,7 @@ def model_save(model, path, n_epoch, optimizer):
                  'optimizer_state_dict': optimizer.state_dict()},
                 path
     )
-    print(f'model save at : {path})
+    print(f'model save at : {path}')
 
 
 def log_from_dict(metric_dict, data_type, data_name, n_epoch):

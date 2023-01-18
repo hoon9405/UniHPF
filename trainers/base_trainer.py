@@ -1,132 +1,70 @@
-import os
-import wandb
+import logging
+import math
+import time
 from itertools import chain
 from typing import Any, Dict, List
-import logging
 
 import numpy as np
 import torch
 import torch.nn as nn
-
-from metrics.metric import PredMetric, PretrainMetric
-import models
-
-import utils.trainer_utils as utils
-import utils.distributed_utils as distributed_utils
-from torch.utils.data import DataLoader, ConcatDataset
-from loss.loss import PredLoss, PretrainLoss
-from datasets.base_dataset import HierarchicalEHRDataset, UnifiedEHRDataset
-import tqdm
-
+import torch.nn.functional as F
 import torch.multiprocessing as mp
+
+from torch.optim import Adam
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data.distributed import DistributedSampler
-import torch.distributed as dist
+
+import utils.utils as utils
+import utils.distributed_utils as distributed_utils
+from loggings import metrics
+
 
 logger = logging.getLogger(__name__)
 
-class BaseTrainer:
-    def __init__(self, args, seed):
+class BaseTrainer(object):
+    def __init__(
+        self,
+        args,
+        model,
+        criterion,
+    ):
         self.args = args
-        self.seed = seed
-        self.batch_size = args.batch_size
-        self.save_dir = args.save_dir
-        self.save_prefix = args.save_prefix
-        
-        if args.train_type =='transfer':
-            self.train_data = args.eval_data[0]
+        self.cuda = torch.cuda.is_available()
+        if self.cuda:
+            self.device = torch.device('cuda')
         else:
-            self.train_data = args.src_data
-
-        self.datasets = dict()
-        self.early_stopping_dict = dict()
-
-
-        data_types = ['train'] + sorted(self.args.valid_subsets*len(self.args.eval_data))
-        data_names = [self.train_data] + self.args.eval_data*len(self.args.valid_subsets)
-        vocab = self.train_data
+            self.device = torch.device('cpu')
         
-        logger.info(data_types, data_names)
-        for split, data in zip(data_types, data_names):
-            # logger.info('split : ', split, 'data_name : ', data)
-            if not split in self.datasets.keys():
-                self.datasets[split] = dict()
-            self.datasets[split][data] = self.load_dataset(split, data, vocab, self.seed)
-        
+        self._criterion = criterion
+        self._model = model
 
-    def load_dataset(self, split, dataname, vocab, seed) -> None: 
-        if self.args.structure == 'hi':
-            dataset = HierarchicalEHRDataset(
-                data=dataname,
-                input_path=self.args.input_path,
-                split=split,
-                vocab=vocab,
-                concept=self.args.input2emb_model,
-                feature=self.args.feature,
-                train_task=self.args.train_task,
-                pretrain_task=self.args.pretrain_task,
-                ratio=self.args.ratio,
-                pred_target=self.args.pred_target,
-                seed=self.args.seed,
-                mask_list=self.args.mask_list,
-                mlm_prob=self.args.mlm_prob,
-                max_word_len=self.args.max_word_len,
-                max_seq_len=self.args.max_seq_len,
-            )
-        elif self.args.structure == 'fl':
-            dataset = UnifiedEHRDataset(
-                data=dataname,
-                input_path=self.args.input_path,
-                split=split,
-                vocab=vocab,
-                concept=self.args.input2emb_model,
-                feature=self.args.feature,
-                train_task=self.args.train_task,
-                pretrain_task=self.args.pretrain_task,
-                ratio=self.args.ratio,
-                pred_target=self.args.pred_target,
-                seed=self.args.seed,
-                mask_list=self.args.mask_list,
-                mlm_prob=self.args.mlm_prob,
-                max_seq_len=self.args.max_seq_len,
-            )
+        self._criterion = self._criterion.to(device=self.device)
+        self._model = self._model.to(device=self.device)
 
+        self._num_updates = 0
+
+        self._optimizer = None
+        self._wrapped_criterion = None
+        self._wrapped_model = None
+
+        if self.cuda:
+            self.cuda_env = utils.CudaEnvironment()
+            if self.data_parallel_world_size > 1:
+                self.cuda_env_arr = distributed_utils.all_gather_list(
+                    self.cuda_env, group=self.data_parallel_process_group
+                )
+            else:
+                self.cuda_env_arr = [self.cuda_env]
+            if self.data_parallel_rank == 0:
+                utils.CudaEnvironment.pretty_print_cuda_env_list(self.cuda_env_arr)
         else:
-            raise NotImplementedError(self.model_type)
- 
-        return dataset
+            self.cuda_env = None
+            self.cuda_env_arr = None
 
-    def dataloader_set(self, dataset, world_size, batch_size):
-        if 1 < world_size:
-            self.sampler = DistributedSampler(dataset)
-            data_loader = DataLoader(
-                dataset, 
-                collate_fn=dataset.collator,
-                batch_size=batch_size,
-                num_workers=8,
-                sampler=self.sampler,
-                pin_memory=True,
-            )
-        else:
-            self.sampler=None
-            data_loader = DataLoader(
-                dataset, 
-                collate_fn=dataset.collator,
-                batch_size=batch_size, 
-                num_workers=8,
-                shuffle=True,
-                pin_memory=True,
-            )
-        return data_loader
+        metrics.log_start_time('wall', priority=790, round=0)
 
-    def setup_dist(self, rank, world_size):
-        os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] = self.args.port
-        dist.init_process_group(
-            backend = "nccl",
-            rank = rank,
-            world_size = world_size
-        )
+        self._start_time = time.time()
+        self._previous_training_time = 0
+        self._cumulative_training_time = None
 
     @property
     def data_parallel_world_size(self):
@@ -148,297 +86,226 @@ class BaseTrainer:
     def is_data_parallel_master(self):
         return self.data_parallel_rank == 0
 
-    def train(self):
-        if 1 < self.args.world_size:
-            mp.spawn(self.distributed_train,
-                    args=(self.args.world_size,),
-                    nprocs=self.args.world_size,
-                    join=True)
-        else:
-            self.distributed_train(self.args.device_num, self.args.world_size)    
-
-    def distributed_train(self, rank, world_size):
-        if 1 < world_size:
-            self.setup_dist(rank, world_size)
-            torch.cuda.set_device(rank)
-
-        # Wandb init
-        if self.is_data_parallel_master and not self.args.debug:
-            wandb.init(
-                project=self.args.wandb_project_name,
-                entity="kaggle-wandb",
-                config=self.args,
-                reinit=True
+    @property
+    def use_distributed_wrapper(self) -> bool:
+        return self.data_parallel_world_size > 1
+    
+    @property
+    def criterion(self):
+        if self._wrapped_criterion is None:
+            if utils.has_parameters(self._criterion) and self.use_distributed_wrapper:
+                self._wrapped_criterion = DistributedDataParallel(
+                    module=self._criterion.to(self.device),
+                    device_ids=[self.args.device_id],
+                    output_device=self.args.device_id,
+                    broadcast_buffers=False,
+                    bucket_cap_mb=25,
+                    process_group=self.data_parallel_process_group,
+                    find_unused_parameters=False,
+                )
+            else:
+                self._wrapped_criterion = self._criterion
+        return self._wrapped_criterion
+    
+    @property
+    def model(self):
+        if self._wrapped_model is None:
+            if self.use_distributed_wrapper:
+                self._wrapped_model = DistributedDataParallel(
+                    module=self._model.to(self.device),
+                    device_ids=[self.args.device_id],
+                    output_device=self.args.device_id,
+                    broadcast_buffers=False,
+                    bucket_cap_mb=25,
+                    process_group=self.data_parallel_process_group,
+                    find_unused_parameters=False,
+                )
+            else:
+                self._wrapped_model = self._model
+        return self._wrapped_model
+    
+    @property
+    def optimizer(self):
+        if self._optimizer is None:
+            self._build_optimizer()
+            if (self.args.auto_resume and self.args.resume) or self.args.edlab_resume:
+                print('loading optimizer from ', self.args.ckpt_load_path)
+                state_dict = torch.load(self.args.ckpt_load_path, map_location='cpu')['optimizer']
+                self._optimizer.load_state_dict(state_dict)
+        return self._optimizer
+    
+    def _build_optimizer(self):
+        params = list(
+            filter(
+                lambda p: p.requires_grad,
+                chain(self.model.parameters(), self.criterion.parameters())
             )
-            wandb.run.name = self.args.wandb_run_name
-
-        model = models.build_model(self.args)
-        num_params = utils.count_parameters(model)
-        
-        if 1 < world_size:
-            device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
-            self.model = model.to(device)
-            self.model = DistributedDataParallel(self.model, device_ids=[rank], find_unused_parameters=False)
-        else:
-            self.model = nn.DataParallel(model, device_ids=self.args.device_ids).to('cuda')
-            
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr)  
-                  
-        if self.args.train_type =='transfer':
-            load_path = self.save_path(self.args.src_data).replace('transfer', 'single') +'.pkl'
-            logger.info('transfer learning, load model from : ', load_path)
-            state_dict = torch.load(load_path, map_location='cpu')['model_state_dict']
-            if self.args.input2emb_model.startswith('codeemb'):
-                state_dict = {
-                    k: v for k,v in state_dict.items() if (
-                        ('input2emb' not in k) and ('pos_enc' not in k)
-                    )
-                }
-            else:   
-                state_dict = {
-                        k: v for k,v in state_dict.items() if (
-                            'pos_enc' not in k
-                        )
-                    }       
-            
-            self.model.load_state_dict(state_dict, strict = False)
-            print('transfer learning mode -- ratio : ', self.args.ratio)
-
-        logger.info(f'device_ids = {self.args.device_ids}')
-
-        data_loader = self.dataloader_set(
-            self.datasets['train'][self.train_data],
-            world_size,
-            self.args.batch_size
         )
 
-        Loss = PredLoss if self.args.train_task =='predict' else PretrainLoss
-        self.criterion = Loss(self.args)
+        if self.cuda and torch.cuda.get_device_capability(0)[0] >= 7:
+            self._optimizer = Adam(params, lr=self.args.lr, weight_decay=0.001)
 
-        metric = PredMetric if self.args.train_task =='predict' else PretrainMetric
-        self.metric = metric(self.args)
+    @metrics.aggregate('train')
+    def train_step(self, sample):
+        self._set_seed()
+        self.model.train()
+        self.criterion.train()
+        self.zero_grad()
 
-        for data in self.datasets['valid'].keys():
-            self.early_stopping_dict[data] = utils.EarlyStopping(
-                patience=self.args.patience, 
-                compare=self.metric.compare,
-                metric=self.metric.update_target
-            )
+        metrics.log_start_time('train_wall', priority=800, round=0)
 
-        break_token= False
-        start_epoch = load_dict['n_epoch'] if load_dict is not None else 1
-        if not self.args.ratio=='0':
-            for n_epoch in range(start_epoch, self.args.epochs + 1):
-                
-                logger.info('[Epoch] {}'.format(n_epoch))
-                self.model.train()
+        logging_outputs = []
+        sample = utils.prepare_sample(sample)
 
-                for iter, sample in tqdm.tqdm(enumerate(data_loader)):
-                    self.optimizer.zero_grad(set_to_none=True)
-                    
-                    output = self.model(**sample['net_input'])
-                    target = self.model.module.get_targets(sample)
-                    
-                    loss = self.criterion(output, target)
-                    loss.backward()
-                    
-                    self.optimizer.step()
-
-                    preds = torch.sigmoid(output['pred_output']).view(-1).detach()
-                    truths = target.view(-1)
-
-                    logging_outputs = {
-                        'loss': float(loss.detach().cpu()),
-                        'preds': preds,
-                        'truths': truths,
-                    }
-                    if self.data_parallel_world_size > 1:
-                        _logging_outputs = self._all_gather_list_sync([logging_outputs])
-
-                        for key in logging_outputs.keys():
-                            if key == 'loss':
-                                logging_outputs[key] = float(sum(log[key] for log in _logging_outputs))
-                            elif key in ['preds', 'truths']:
-                                logging_outputs[key] = np.concatenate(
-                                    [log[key].numpy() for log in _logging_outputs]
-                                )
-                            else:
-                                raise NotImplementedError(
-                                    "What else?"
-                                )
-                        del _logging_outputs
-                    else:
-                        logging_outputs['preds'] = logging_outputs['preds'].cpu().numpy()
-                        logging_outputs['truths'] = logging_outputs['truths'].cpu().numpy()
-                    
-                    self.metric(**logging_outputs) # iter_uddate
-                    
-                with torch.no_grad():
-                    train_metric_dict = self.metric.get_epoch_dict(
-                        len(data_loader)
-                    )
+        loss, sample_size, logging_output = self.criterion(self.model, sample)
+        loss.backward() # backwward
+        self.optimizer.step()
         
-                log_dict = utils.log_from_dict(train_metric_dict, 'train', self.train_data, n_epoch)
-                
-                if self.is_data_parallel_master and self.args.debug == False:
-                    wandb.log(log_dict) 
-
-                break_token = self.evaluation(n_epoch)
+        logging_outputs.append(logging_output)
         
-                if break_token:
-                    break
+        if self.cuda and self.get_num_updates() == 0:
+            torch.cuda.empty_cache()
+    
+        sample_size = float(sample_size)
         
-        self.test(n_epoch)
-        print(f'test finished at epoch {n_epoch}')
-
-        if self.is_data_parallel_master and self.args.debug == False:
-            wandb.finish(0)
-
-        if self.data_parallel_world_size > 1:
-            dist.destroy_process_group()
-
-
-    def inference(self, data_loader, data_type, data_name, n_epoch):
-        self.model.eval()
-        with torch.no_grad():
-            for iter, sample in tqdm.tqdm(enumerate(data_loader)):
-                self.optimizer.zero_grad(set_to_none=True)
-                
-                output = self.model(**sample['net_input'])
-                target = self.model.module.get_targets(sample)
-              
-                loss = self.criterion(output, target)
-                
-                preds = torch.sigmoid(output['pred_output']).view(-1).detach()
-                truths = target.view(-1)
-
-                logging_outputs = {
-                    'loss': float(loss.detach().cpu()),
-                    'preds': preds,
-                    'truths': truths,
-                }
-                if self.data_parallel_world_size > 1:
-                    _logging_outputs = self._all_gather_list_sync([logging_outputs])
-
-                    for key in logging_outputs.keys():
-                        if key == 'loss':
-                            logging_outputs[key] = float(sum(log[key] for log in _logging_outputs))
-                        elif key in ['preds', 'truths']:
-                            logging_outputs[key] = np.concatenate(
-                                [log[key].numpy() for log in _logging_outputs]
-                            )
-                        else:
-                            raise NotImplementedError(
-                                "What else?"
-                            )
-                    del _logging_outputs
-                else:
-                    logging_outputs['preds'] = logging_outputs['preds'].cpu().numpy()
-                    logging_outputs['truths'] = logging_outputs['truths'].cpu().numpy()
-                
-                self.metric(**logging_outputs) # iter_uddate
-
-            metric_dict = self.metric.get_epoch_dict(
-                len(data_loader)
-            )
-
-        log_dict = utils.log_from_dict(metric_dict, data_type, data_name, n_epoch)
-
-        if self.is_data_parallel_master and self.args.debug == False:
-            wandb.log(log_dict) 
-        
-        return metric_dict
-
-
-    def evaluation(self, n_epoch):
-        self.model.eval()
-        break_token = False
-        stop_list = []
-
-        for data_name, dataset in self.datasets['valid'].items():
-            data_loader = self.dataloader_set(
-                dataset,
-                self.data_parallel_world_size,
-                self.args.batch_size
-            )
-            metric_dict = self.inference(data_loader, 'valid', data_name, n_epoch)
+        if self._sync_stats():
+            train_time = self._local_cumulative_training_time()
             
-            if self.early_stopping_dict[data_name](metric_dict[self.metric.update_target]):
-                if self.is_data_parallel_master:
-                    logger.info(
-                        "Saving checkpoint to {}".format(
-                            os.path.join(self.save_dir, self.save_prefix + "_best.pt")
-                        )
-                    )
-                    best_model_path = self.save_path(self.save_dir + self.save_prefix +'_best.pt')
-                    utils.model_save(self.model, best_model_path, n_epoch, self.optimizer)
+            logging_outputs, ( 
+                sample_size, total_train_time
+            ) = self._aggregate_logging_outputs(
+                logging_outputs, sample_size, train_time
+            )
+            
+            self._cumulative_training_time = (
+                total_train_time / self.data_parallel_world_size
+            )
 
-            if self.early_stopping_dict[data_name].early_stop:
-                logger.info(f'data_name : {data_name}, Early stopping!')
-                stop_list.append(data_name)
+        logging_output = None
+        self.set_num_updates(self.get_num_updates() + 1)
+
+        if self.cuda and self.cuda_env is not None:
+            gb_used = torch.cuda.max_memory_allocated() / 1024 / 1024 / 1024
+            torch.cuda.reset_peak_memory_stats()
+            gb_free = self.cuda_env.total_memory_in_GB - gb_used
+            metrics.log_scalar(
+                'gb_free', gb_free, priority=1500, round=1, weight=0
+            )
         
-        for data_name in stop_list:
-            del self.datasets['valid'][data_name]
-
-        if self.datasets['valid'] == {}:
-            break_token = True
-            logger.info(f'all valid finished at {n_epoch}')
         
-        return break_token
+        logging_outputs = list(map(
+            lambda x: {key: x[key] for key in x}, logging_outputs)
+        ) # -> 이거 왜있는거?
         
-    def test(self, n_epoch, load_checkpoint=None):
-        print('test start .. ')
-        if load_checkpoint is not None:
-            for data_name, dataset in self.datasets['test'].items():
+        
+        logging_output = self._reduce_and_log_stats(
+            self.args.train_src, logging_outputs, sample_size
+        )
+        
+        metrics.log_stop_time('train_wall')
+        return logging_output
 
-                load_path = load_checkpoint
-                state_dict = torch.load(load_path, map_location='cpu')['model_state_dict']
-                self.model.load_state_dict(state_dict, strict = True)
+    @metrics.aggregate('valid')
+    def valid_step(self, sample, subset=None, dataname=None):
+        with torch.no_grad():
+            self.model.eval()
+            self.criterion.eval()
 
-                data_loader = self.dataloader_set(
-                    dataset,
-                    self.data_parallel_world_size,
-                    self.args.batch_size
-                )
-                metric_dict = self.inference(
-                    data_loader, 'test', data_name, n_epoch
-                )
+            sample = utils.prepare_sample(sample)
+            
+            _loss, sample_size, logging_output = self.criterion(self.model, sample)
+
+            logging_outputs = [logging_output]
+        
+        if self.data_parallel_world_size > 1 :
+            logging_outputs, (sample_size, ) = self._aggregate_logging_outputs(
+                logging_outputs,
+                sample_size,
+                ignore=False,
+            )
+        
+        logging_output = self._reduce_and_log_stats(dataname, logging_outputs, sample_size)
+
+        return _loss, sample_size, logging_outputs 
+
+    def zero_grad(self):
+        self.optimizer.zero_grad()
+
+    def get_num_updates(self):
+        return self._num_updates
+
+    def set_num_updates(self, num_updates):
+        self._num_updates = num_updates
+        metrics.log_scalar("num_updates", self._num_updates, weight = 0, priority = 200)
+
+
+    def cumulative_training_time(self):
+        if self._cumulative_training_time is None:
+            return self._local_cumulative_training_time()
         else:
-            for data_name, dataset in self.datasets['test'].items():
-                load_path = self.save_path(data_name)+'.pkl'
-                state_dict = torch.load(load_path, map_location='cpu')['model_state_dict']
-                self.model.load_state_dict(state_dict, strict = True)
-
-                data_loader = self.dataloader_set(
-                    dataset,
-                    self.data_parallel_world_size,
-                    self.args.batch_size
-                )
-                metric_dict = self.inference(data_loader, 'test', data_name, n_epoch)
+            return self._cumulative_training_time
         
-        return metric_dict
+    def _local_cumulative_training_time(self):
+        return time.time() - self._start_time + self._previous_training_time
 
+
+    def _set_seed(self):
+        seed = self.args.seed[0] + self.get_num_updates()
+        utils.set_torch_seed(seed)
+    
+    def _sync_stats(self):
+        if self.data_parallel_world_size == 1:
+            return False
+        else:
+            return True
+
+    def _aggregate_logging_outputs(
+        self,
+        logging_outputs: List[Dict[str, Any]],
+        *extra_stats_to_sum,
+        ignore=False
+    ):
+        
+        return self._all_gather_list_sync(
+            logging_outputs, *extra_stats_to_sum, ignore=ignore
+        )
 
     def _all_gather_list_sync(
         self,
         logging_outputs: List[Dict[str, Any]],
+        *extra_stats_to_sum,
         ignore = False
     ):
-        """
-        Sync logging outputs across workers. all_gather_list_sync is
-        suifeature when logging outputs are complex types.
-        """
+       
         if ignore:
             logging_outputs = []
         results = list(
             zip(
                 *distributed_utils.all_gather_list(
-                    [logging_outputs],
-                    max_size = getattr(self, "all_gather_list_size", 1048576),
+                    [logging_outputs] + list(extra_stats_to_sum),
+                    max_size = getattr(self, "all_gather_list_size", 16384),
                     group = self.data_parallel_process_group
                 )
             )
         )
-        logging_outputs = results[0]
+        
+        logging_outputs, extra_stats_to_sum = results[0], results[1:]
         logging_outputs = list(chain.from_iterable(logging_outputs))
-        return logging_outputs
+        extra_stats_to_sum = [sum(s) for s in extra_stats_to_sum]
+        return logging_outputs, extra_stats_to_sum
+
+    def _reduce_and_log_stats(self, dataname, logging_outputs, sample_size):
+        metrics.log_speed('ups', 1.0, priority=100, round=2)
+        
+        with metrics.aggregate() as agg:
+            if logging_outputs is not None:
+                self.criterion.__class__.reduce_metrics(self.args, dataname, logging_outputs)
+                del logging_outputs
+                
+            logging_output = agg.get_smoothed_values()
+            
+            logging_output['sample_size'] = sample_size
+
+            
+            return logging_output
+    
