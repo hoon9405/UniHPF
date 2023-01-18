@@ -42,6 +42,7 @@ import types
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
+    
     #parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
     #parser.add_argument('--input_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/input')
     #parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
