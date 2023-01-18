@@ -41,10 +41,12 @@ import types
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
+    parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
+    #parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
     #parser.add_argument('--input_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/input')
-    # parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
-    parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
+    #parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
+    parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
+    #parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
     #parser.add_argument('--output_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/output')
     # parser.add_argument('--output_path', type=str, default='/home/jykim/UniHPF_pretrain/checkpoints/20220909')
     parser.add_argument('--load_checkpoint', type=str, default=None)
@@ -100,7 +102,7 @@ def get_parser():
     
     # trainer
     parser.add_argument('--train_task', choices=['pretrain', 'sampled_pretrain', 'finetune', 'scratch'], type=str, default=None)
-    parser.add_argument('--seed', type=str, default='46') #TODO: seed args for scratch / finetune in run file
+    parser.add_argument('--seed', type=str, default='42') #TODO: seed args for scratch / finetune in run file
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--max_epoch', type=int, default=300)
     parser.add_argument('--batch_size', type=int, default=2)

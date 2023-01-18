@@ -283,7 +283,7 @@ class BaseTrainer(object):
             zip(
                 *distributed_utils.all_gather_list(
                     [logging_outputs] + list(extra_stats_to_sum),
-                    max_size = getattr(self, "all_gather_list_size", 16384),
+                    max_size = getattr(self, "all_gather_list_size", 32768),
                     group = self.data_parallel_process_group
                 )
             )

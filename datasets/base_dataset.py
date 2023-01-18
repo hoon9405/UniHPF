@@ -13,7 +13,7 @@ import pandas as pd
 
 from transformers import AutoTokenizer
 from sklearn.preprocessing import MultiLabelBinarizer
-np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
+#np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 logger = logging.getLogger(__name__)
 

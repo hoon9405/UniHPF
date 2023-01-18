@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+*fatsta
+*.pkl
+__pycache__/
+checkpoints/
+results/
+.vscode/
+wandb/
+.wandb/
+*.pt

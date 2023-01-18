@@ -114,7 +114,7 @@ def all_reduce(tensor, group, op = "sum"):
     
     return tensor
 
-def all_gather_list(data, group = None, max_size = 16384):
+def all_gather_list(data, group = None, max_size = 32768):
     """Gathers arbitrary data from all nodes into a list.
 
     Similar to :func:`~torch.distributed.all_gather` but for arbitrary Python
