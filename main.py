@@ -41,13 +41,13 @@ import types
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
+    #parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
     
-    #parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
+    parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
     #parser.add_argument('--input_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/input')
     #parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
-    parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
-    #parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
+    #parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
+    parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
     #parser.add_argument('--output_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/output')
     # parser.add_argument('--output_path', type=str, default='/home/jykim/UniHPF_pretrain/checkpoints/20220909')
     parser.add_argument('--load_checkpoint', type=str, default=None)
@@ -103,7 +103,7 @@ def get_parser():
     
     # trainer
     parser.add_argument('--train_task', choices=['pretrain', 'sampled_pretrain', 'finetune', 'scratch'], type=str, default=None)
-    parser.add_argument('--seed', type=str, default='42') #TODO: seed args for scratch / finetune in run file
+    parser.add_argument('--seed', type=str, default='42,43,44,45,46') #TODO: seed args for scratch / finetune in run file
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--max_epoch', type=int, default=300)
     parser.add_argument('--batch_size', type=int, default=2)
@@ -113,11 +113,11 @@ def get_parser():
     parser.add_argument( # 'loss' for pretrain, 'auFprc' for finetune #-> 각 테스크에 따라서 자동 조정
         '--best_checkpoint_metric', 
         type=str, 
-        default='avg_auprc', 
+        default='avg_auroc', 
         choices=['loss', 'avg_auprc', 'acc', 'avg_auroc']
     )
     parser.add_argument( # 'False' for loss, 'True' for auprc #-> 각 테스크에 따라서 자동 조정
-        '--maximize_best_checkpoint_metric', action='store_true', default=True
+        '--maximize_best_checkpoint_metric', action='store_true', default=False
     )
 
     # pretrain
@@ -493,7 +493,6 @@ def main(args) -> None:
             print("Start patience: ", utils.should_stop_early.num_runs)
         
         for i in range(args.start_epoch, max_epoch + 1):
-            
             cum_data_count += len(dataloaders['train'][args.train_src])
             validation = True if 'valid' in data_split else False
             valid_losses, should_stop = train(args, trainer, cum_data_count, epoch_itr=dataloaders, epoch=i, sampler=samplers, validation=validation)
@@ -609,60 +608,37 @@ def train(args, trainer, cum_data_count, epoch_itr, epoch, sampler, validation):
             should_stop = False
             # 여기 should stop을 기준으로 dataloaders 에서 삭제
     else:
-        valid_losses, should_stop = validate_and_save(args, trainer, epoch_itr, epoch, 'train', args.train_src)
+        valid_losses, should_stop = train_save(args, trainer, epoch, stats, args.train_src)
     logger.info('end of epoch {} (average epoch stats below)'.format(epoch))
         
     metrics.reset_meters('train')
     return valid_losses, should_stop
 
-# def train_save(args, trainer, epoch, stats, dataname):
-#     should_stop = False
 
-#     valid_losses = []
-#     stats = get_train_stats(args, stats)
-#     valid_losses.append(stats[f'{dataname}_{args.best_checkpoint_metric}'])
-#     logger.info(f'train_losses = {valid_losses}')
-#     should_stop |= utils.should_stop_early(
-#         args.patience,
-#         dataname,
-#         valid_losses[0],
-#         descending=(not args.maximize_best_checkpoint_metric)
-#     )
-
-#     state_dict = {
-#         'model': trainer.model.state_dict() if not (
-#             isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel)
-#         ) else trainer.model.module.state_dict(),
-#         'epoch': epoch,
-#         'optimizer': trainer.optimizer.state_dict(),
-#         'valid_losses': valid_losses,
-#         'patience': utils.should_stop_early.num_runs[dataname],
-#     }
-
-#     if 'pretrain' in args.train_task:
-#         torch.save(
-#             state_dict,
-#             os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
-#         )
-
-#         if utils.should_stop_early.best[dataname] == valid_losses[0]:
-#             torch.save(
-#                 state_dict,
-#                 os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt')
-#             )
-
-#     torch.save(
-#         state_dict,
-#         os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
-#     )
-
-#     if utils.should_stop_early.best[dataname] == valid_losses[0]:
-#         torch.save(
-#             state_dict,
-#             os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt')
-#         )
+def train_save(args, trainer, epoch, stats, dataname):
+    should_stop = False
     
-#     return valid_losses, should_stop
+    valid_losses = []
+    valid_losses.append(stats[f'{dataname}_{args.best_checkpoint_metric}'])
+    logger.info(f'train_losses = {valid_losses}')
+
+    state_dict = {
+        'model': trainer.model.state_dict() if not (
+            isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel)
+        ) else trainer.model.module.state_dict(),
+        'epoch': epoch,
+        'optimizer': trainer.optimizer.state_dict(),
+        'valid_losses': valid_losses,
+        'patience': 0,
+    }
+
+    if 'pretrain' in args.train_task:
+        torch.save(
+            state_dict,
+            os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
+        )
+        logger.info(f'pretrain checkpoint save {args.checkpoint_save_path}, {args.checkpoint_prefix}_checkpoint_last.pt')
+    return valid_losses, should_stop
 
 def validate_and_save(args, trainer, epoch_itr, epoch, valid_subset, dataname):
     num_updates = trainer.get_num_updates()
@@ -693,23 +669,18 @@ def validate_and_save(args, trainer, epoch_itr, epoch, valid_subset, dataname):
             state_dict,
             os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
         )
+        
+    else:
+        torch.save(
+            state_dict,
+            os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
+        )
 
         if utils.should_stop_early.best[dataname] == valid_losses[0]:
             torch.save(
                 state_dict,
                 os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt')
             )
-
-    torch.save(
-        state_dict,
-        os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_checkpoint_last.pt')
-    )
-
-    if utils.should_stop_early.best[dataname] == valid_losses[0]:
-        torch.save(
-            state_dict,
-            os.path.join(args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt')
-        )
     
     return valid_losses, should_stop
 

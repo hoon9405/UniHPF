@@ -20,5 +20,6 @@ python3 ../../main.py \
 --criterion prediction \
 --valid_subset valid,test \
 --pred_task $pred_task \
+--maximize_best_checkpoint_metric \
 --wandb \
 # --pooled_eval \

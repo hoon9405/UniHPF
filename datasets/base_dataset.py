@@ -37,7 +37,16 @@ class BaseEHRDataset(torch.utils.data.Dataset):
         seed='2020',
         **kwargs,
     ):
-        self.data_dir = os.path.join(input_path, data, emb_type, feature) #TODO: data sampling dir
+        self.split = split
+
+        self.structure = structure
+        self.train_task = train_task
+
+        self.seed = seed
+        
+        self.data_dir = os.path.join(input_path, data, emb_type, feature) 
+        if self.train_task =='sampled_pretrain':
+            self.data_dir =os.path.join(self.data_dir, 'data_sample')
         
         self.stay_id = {
             "mimiciii": "ICUSTAY_ID",
@@ -45,12 +54,7 @@ class BaseEHRDataset(torch.utils.data.Dataset):
             "mimiciv": "stay_id"
         }[data]
 
-        self.split = split
-
-        self.structure = structure
-        self.train_task = train_task
-
-        self.seed = seed
+        
 
         # Get split icustay ids
         self.fold_file = pd.read_csv(os.path.join(input_path, f"{data}_cohort.csv"))
@@ -66,12 +70,16 @@ class BaseEHRDataset(torch.utils.data.Dataset):
                 self.test_idcs = np.append(self.test_idcs, self.fold_file[self.fold_file[col_name] == 'test'][self.stay_id].values)
             
             self.hit_idcs = np.unique(self.train_valid_idcs[~np.isin(self.train_valid_idcs, self.test_idcs)])
-
+            if self.train_task == 'sampled_pretrain':
+                self.hit_idcs = [i.rstrip('.pkl') for i in os.listdir(self.data_dir) if int(i.split('_')[0]) in self.hit_idcs.astype('int64').tolist() ]
+                
         # If scratch / finetune, use train/valid/test data of 1 seed each
         elif self.train_task in ['scratch', 'finetune']:
             col_name = f'split_{seed[0]}'
             self.hit_idcs = self.fold_file[self.fold_file[col_name] == self.split][self.stay_id].values
 
+        
+        
         logger.info(f'loaded {len(self.hit_idcs)} {self.split} samples')
 
     def __len__(self):
@@ -317,7 +325,10 @@ class HierarchicalEHRDataset(EHRDataset):
         return sample
 
     def __getitem__(self, index):
-        fname = str(int(self.hit_idcs[index])) + '.pkl' #TODO: modify data pipeline cohort icustay type to int 
+        if self.train_task =='sampled_pretrain': 
+            fname = self.hit_idcs[index] + '.pkl' 
+        else:
+            fname = str(int(self.hit_idcs[index])) + '.pkl' 
         data = pd.read_pickle(os.path.join(self.data_dir, fname))
 
         pack = {

@@ -89,12 +89,11 @@ class SimClr(_Loss):
             
             logging_output["correct"] = corr
             logging_output["count"] = count
-
         
         return loss, sample_size, logging_output
     
     @staticmethod
-    def reduce_metrics(args, logging_outputs) -> None: 
+    def reduce_metrics(args, dataname, logging_outputs) -> None: 
         """Aggregate logging outputs from data parallel training."""
         loss_sum = utils.item(sum(log.get("loss", 0) for log in logging_outputs))
 
@@ -102,7 +101,7 @@ class SimClr(_Loss):
             sum(log.get("sample_size", 0) for log in logging_outputs)
         )
         metrics.log_scalar(
-            f'{args.log_prefix}loss', loss_sum / (sample_size or 1) / math.log(2), sample_size, round = 3
+            f'{dataname}_loss', loss_sum / (sample_size or 1) / math.log(2), sample_size, round = 3
         )
 
         correct = sum(log.get("correct", 0) for log in logging_outputs)
