@@ -44,22 +44,36 @@ class UniHPF(nn.Module):
 
         if state_dict is None: 
             state_dict = torch.load(checkpoint, map_location='cpu')['model']     
-        
-        #Transfer learning codebase emb
-        if args.train_task =='finetune' and args.emb_type=='codebase':
+        #breakpoint()
+        if args.pretrain_task !='scratch':
             state_dict = {
                     k: v for k,v in state_dict.items() if (
                         ('input2emb' not in k) and ('pos_enc' not in k)
                     )
                 }
-        
-        model.load_state_dict(state_dict)
-    
+        #Transfer learning codebase emb
+        if args.train_task =='finetune':
+            if args.emb_type =='codebase':
+                state_dict = {
+                        k: v for k,v in state_dict.items() if (
+                            ('emb_type' not in k) and ('pos_enc' not in k) 
+                        )
+                    }
+            if args.emb_type =='textbase':
+                state_dict = {
+                        k: v for k,v in state_dict.items() if (
+                             'pos_enc' not in k) 
+                        
+                    }
+                
+        if 'pretrain' in args.train_task:
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model.load_state_dict(state_dict, strict=False)
         return model 
 
 
     def forward(self, **kwargs):
-
         all_codes_embs = self.emb_type_model(**kwargs)  # (B, S, E)
         x = self.pred_model(all_codes_embs, **kwargs)
         net_output = self.emb2out_model(x, **kwargs)

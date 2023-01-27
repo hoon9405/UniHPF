@@ -21,10 +21,34 @@ class DescEmb(nn.Module):
         
         self.args = args
         
-        self.input_index_size = 28996 # bio clinical bert vocab
-        self.type_index_size = 7 
-        self.dpe_index_size = 16
-
+        codebook_size = {
+        'whole':{
+            'mimiciii': 10435,
+            'eicu': 6798,
+            'mimiciv': 10492,
+            'mimiciii_eicu': 0,
+            'eicu_mimiciv': 0,
+            'mimiciii_mimiciv': 0,
+            'mimiciii_eicu_mimiciv': 0 
+            },
+        'select':{
+            'mimiciii': 6371,
+            'eicu': 5705,
+            'mimiciv': 5809,
+            'mimiciii_eicu': 0,
+            'eicu_mimiciv': 0,
+            'mimiciii_mimiciv': 0,
+            'mimiciii_eicu_mimiciv': 0    
+            }
+        }
+        if self.args.emb_type =='textbase':
+            self.input_index_size = 28996 # bio clinical bert vocab
+            self.type_index_size = 7 
+            self.dpe_index_size = 16
+        else:
+            self.input_index_size = codebook_size[args.feature][args.train_src] # bio clinical bert vocab
+            self.type_index_size = 7 
+            
         self.dpe = args.dpe
         self.token_type = args.type_token
         self.pos_enc = args.pos_enc
@@ -42,7 +66,7 @@ class DescEmb(nn.Module):
 
         self.dpe_ids_embedding =nn.Embedding(
             self.dpe_index_size, self.args.embed_dim
-        ) if self.args.dpe else None
+        ) if self.args.dpe and self.args.emb_type=='textbase' else None
 
         max_len = args.max_seq_len if args.structure =='fl' else args.max_word_len
    

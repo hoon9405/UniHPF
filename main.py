@@ -42,8 +42,8 @@ import types
 def get_parser():
     parser = argparse.ArgumentParser()
     #parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
-    
-    parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
+    parser.add_argument('--input_path', type=str, default='/home/ghhur/.cache/ehr/')
+    #parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
     #parser.add_argument('--input_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/input')
     #parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
     #parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
@@ -82,9 +82,7 @@ def get_parser():
         help="the pre-training method applied"
         )
     
-    parser.add_argument('--ratio', choices=['0', '10', '100'], type=str, default='100')
-
-    
+    parser.add_argument('--ratio', choices=['0', '10', '30', '50', '70' '100'], type=str, default='100')
 
     parser.add_argument(
         '--pred_tasks',
@@ -96,14 +94,14 @@ def get_parser():
         help=""
     )
     
-    
     parser.add_argument('--emb_type', choices=['codebase', 'textbase'], required=True, type=str, default=None)
     parser.add_argument('--feature', choices=['select', 'whole'], required=True, type=str, default=None)
     parser.add_argument('--structure', choices=['hi', 'fl'], required=True, type=str, default=None)
-    
+    parser.add_argument('--pretrain_sample', choices=['original', 'sampled'], default='sampled')
     # trainer
     parser.add_argument('--train_task', choices=['pretrain', 'sampled_pretrain', 'finetune', 'scratch'], type=str, default=None)
     parser.add_argument('--seed', type=str, default='42,43,44,45,46') #TODO: seed args for scratch / finetune in run file
+    #parser.add_argument('--seed', type=str, default='42')
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--max_epoch', type=int, default=300)
     parser.add_argument('--batch_size', type=int, default=2)
@@ -148,7 +146,7 @@ def get_parser():
     parser.add_argument('--text_post_proj', action='store_true')
     parser.add_argument('--map_layers', type=int, default=1)
     parser.add_argument('--max_word_len', type=int, default=128)
-    parser.add_argument('--max_seq_len', type=int, default=8192)
+    parser.add_argument('--max_seq_len', type=int, default=256)
     parser.add_argument('--time_embed', type=str, choices=[None, 'Timegap', 'Alibi'], default=None)
 
 
@@ -222,6 +220,7 @@ def sigterm_handler(s: signal.Signals, f: types.FrameType) -> None:
 def load_dataset(args, split, dataname, seed) -> None:
     if args.structure =='hi':
         ds = HierarchicalEHRDataset(
+            args=args,
             data=dataname,
             emb_type=args.emb_type,
             feature=args.feature,
@@ -240,6 +239,7 @@ def load_dataset(args, split, dataname, seed) -> None:
         )
     elif args.structure=='fl':
         ds = FlattenEHRDataset(
+            args=args,
             data=dataname,
             emb_type=args.emb_type,
             feature=args.feature,
@@ -267,7 +267,7 @@ def load_dataloader(dataset, batch_size, seed, collator) -> None:
         dataset,
         batch_size=batch_size,
         shuffle=True if not dist.is_initialized() else False,
-        num_workers=8,
+        num_workers=16,
         collate_fn=collator,
         sampler=sampler,
     )  
@@ -364,10 +364,13 @@ def main(args) -> None:
 
     # model & criterion build
     model = models.build_model(args)
-    
+    optimizer_load = None
     # resume
     if args.load_checkpoint is not None:     
+        model_loaded, args.start_epoch, optimizer, num_runs, valid_losses = model_load(args.load_checkpoint)
         model = model.from_pretrained(args, checkpoint=args.load_checkpoint)
+        if args.train_task!='finetune': 
+            optimizer_load = True
         print("Model training from args checkpoint "+ args.load_checkpoint + " ...")
         
     elif (args.auto_resume and args.resume) or args.edlab_resume:
@@ -385,10 +388,15 @@ def main(args) -> None:
         print("Resume training from checkpoint "+ ckpt_load_path + " ...")
     
     elif args.train_task =='finetune':    
-        pretrain_prefix = 'scratch' if args.pretrain_task =='scratch' else 'pretrain'
+        pretrain_prefix = 'scratch' if args.pretrain_task =='scratch' else 'pretrain' if args.pretrain_sample=='original' else 'sampled_pretrain'
+        pretrain_suffix = 'checkpoint_best.pt' if args.pretrain_task =='scratch' else 'checkpoint_last.pt'
         pt_ckpt_save_dir = os.path.join(args.output_path, pretrain_prefix, f'{args.emb_type}_{args.feature}_{args.structure}')
-        pt_ckpt_name = f'{args.pretrain_task}_train_{args.pt_src}_{args.time_embed}_{args.pred_task_save}_{args.seed[0]}'
-        ckpt_load_path = os.path.join(pt_ckpt_save_dir, f'{pt_ckpt_name}_{args.pt_src}_checkpoint_best.pt')
+        if pretrain_prefix =='pretrain' or pretrain_prefix =='sampled_pretrain':
+            pt_ckpt_name = f'{args.pretrain_task}_train_{args.pt_src}_{args.time_embed}_all_{42}'
+        else:
+            pt_ckpt_name = f'{args.pretrain_task}_train_{args.pt_src}_{args.time_embed}_all_{args.seed[0]}_{args.pt_src}'
+            
+        ckpt_load_path = os.path.join(pt_ckpt_save_dir, f'{pt_ckpt_name}_{pretrain_suffix}')
         model = model.from_pretrained(args, checkpoint=ckpt_load_path)
         print("Finetune- Loaded checkpoint from "+ ckpt_load_path + " ...")
     
@@ -451,7 +459,9 @@ def main(args) -> None:
     from trainers.base_trainer import BaseTrainer as Trainer
 
     trainer = Trainer(args, model, criterion)
-
+    if optimizer_load:
+        trainer.optimizer.load_state_dict(optimizer)
+        
     logger.info(
         'training on {} devices (GPUs)'.format(
             args.world_size
@@ -492,23 +502,25 @@ def main(args) -> None:
         if (args.auto_resume and args.resume) or args.edlab_resume:
             print("Start patience: ", utils.should_stop_early.num_runs)
         
-        for i in range(args.start_epoch, max_epoch + 1):
-            cum_data_count += len(dataloaders['train'][args.train_src])
-            validation = True if 'valid' in data_split else False
-            valid_losses, should_stop = train(args, trainer, cum_data_count, epoch_itr=dataloaders, epoch=i, sampler=samplers, validation=validation)
-            if should_stop:
-                break
+        if args.ratio !='0':
+            for i in range(args.start_epoch, max_epoch + 1):
+                cum_data_count += len(dataloaders['train'][args.train_src])
+                validation = True if 'valid' in data_split else False
+                valid_losses, should_stop = train(args, trainer, cum_data_count, epoch_itr=dataloaders, epoch=i, sampler=samplers, validation=validation)
+                if should_stop:
+                    break
         # TODO -test 
         if 'test' in args.valid_subset:
             for dataname in dataloaders['test'].keys():
-                best_state_dict = torch.load(os.path.join(
-                    args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt'), map_location='cpu'
-                    )['model']
-                if not isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel):
-                    trainer.model.load_state_dict(best_state_dict, strict=True) # load best ckpt for testing
-                else:
-                    trainer.model.module.load_state_dict(best_state_dict, strict=True)
-                print(f"{dataname} loaded best checkpoint")
+                if args.ratio !='0':
+                    best_state_dict = torch.load(os.path.join(
+                        args.checkpoint_save_path, f'{args.checkpoint_prefix}_{dataname}_checkpoint_best.pt'), map_location='cpu'
+                        )['model']
+                    if not isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel):
+                        trainer.model.load_state_dict(best_state_dict, strict=True) # load best ckpt for testing
+                    else:
+                        trainer.model.module.load_state_dict(best_state_dict, strict=True)
+                    print(f"{dataname} loaded best checkpoint")
                 
                 valid_losses = validate(args, trainer, dataloaders, 'test', dataname)
                 logger.info(f'test_losses = {valid_losses}')

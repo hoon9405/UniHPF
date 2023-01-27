@@ -8,8 +8,8 @@ from performer_pytorch import Performer
 from models import register_model
 from models.utils import PositionalEncoding
 
-@register_model("performer")
-class Performer(nn.Module):
+@register_model("performer_pred")
+class PerformerPred(nn.Module):
     def __init__(self, args):
         super().__init__()
         
@@ -22,6 +22,7 @@ class Performer(nn.Module):
                 )
             self.layer_norm = nn.LayerNorm(args.embed_dim, eps=1e-12)
 
+        
         self.performer_encoder = Performer(
             dim = args.pred_dim,
             depth = args.n_layers,

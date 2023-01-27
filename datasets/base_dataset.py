@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 class BaseEHRDataset(torch.utils.data.Dataset):
     def __init__(
         self,
+        args,
         data,
         emb_type,
         feature,
@@ -43,7 +44,7 @@ class BaseEHRDataset(torch.utils.data.Dataset):
         self.train_task = train_task
 
         self.seed = seed
-        
+        self.ehr = data
         self.data_dir = os.path.join(input_path, data, emb_type, feature) 
         if self.train_task =='sampled_pretrain':
             self.data_dir =os.path.join(self.data_dir, 'data_sample')
@@ -71,15 +72,38 @@ class BaseEHRDataset(torch.utils.data.Dataset):
             
             self.hit_idcs = np.unique(self.train_valid_idcs[~np.isin(self.train_valid_idcs, self.test_idcs)])
             if self.train_task == 'sampled_pretrain':
-                self.hit_idcs = [i.rstrip('.pkl') for i in os.listdir(self.data_dir) if int(i.split('_')[0]) in self.hit_idcs.astype('int64').tolist() ]
+                pkl_list = os.listdir(self.data_dir)
+                hit_idcs = self.hit_idcs.astype('int64').tolist()
+                self.hit_idcs = [i.rstrip('.pkl') for i in tqdm.tqdm(pkl_list) if int(i.split('_')[0]) in hit_idcs]
                 
         # If scratch / finetune, use train/valid/test data of 1 seed each
         elif self.train_task in ['scratch', 'finetune']:
             col_name = f'split_{seed[0]}'
             self.hit_idcs = self.fold_file[self.fold_file[col_name] == self.split][self.stay_id].values
-
-        
-        
+            if self.split !='test' and (ratio != '100' and ratio !='0'):
+                self.hit_idcs = np.random.choices(self.hit_idcs, round(len(self.hit_idcs)*int(ratio)/100))
+            
+        self.codebook_size = {
+        'whole':{
+            'mimiciii': 10435,
+            'eicu': 6798,
+            'mimiciv': 10492,
+            'mimiciii_eicu': 0,
+            'eicu_mimiciv': 0,
+            'mimiciii_mimiciv': 0,
+            'mimiciii_eicu_mimiciv': 0 
+            },
+        'select':{
+            'mimiciii': 6371,
+            'eicu': 5705,
+            'mimiciv': 5809,
+            'mimiciii_eicu': 0,
+            'eicu_mimiciv': 0,
+            'mimiciii_mimiciv': 0,
+            'mimiciii_eicu_mimiciv': 0    
+            }
+        }
+        self.total_codebook_size = self.codebook_size[args.feature][args.train_src]
         logger.info(f'loaded {len(self.hit_idcs)} {self.split} samples')
 
     def __len__(self):
@@ -174,6 +198,7 @@ class BaseEHRDataset(torch.utils.data.Dataset):
 class EHRDataset(BaseEHRDataset):
     def __init__(
         self,
+        args,
         data,
         emb_type,
         feature,
@@ -189,6 +214,7 @@ class EHRDataset(BaseEHRDataset):
         **kwargs,
     ):
         super().__init__(
+            args=args,
             data=data,
             emb_type=emb_type,
             feature=feature,
@@ -199,7 +225,7 @@ class EHRDataset(BaseEHRDataset):
             seed=seed,
             **kwargs,
         )
-
+        self.args = args
         self.pred_tasks = pred_tasks
         self.pretrain_task = pretrain_task
 
@@ -234,7 +260,7 @@ class HierarchicalEHRDataset(EHRDataset):
 
         self.max_seq_len = max_seq_len
         self.max_word_len = max_word_len
-
+        
         if 'pretrain' in self.train_task:
             if self.pretrain_task in ['simclr']:
                 self.mask = self.hi_mask_tokens_wrapper
@@ -261,12 +287,14 @@ class HierarchicalEHRDataset(EHRDataset):
 
         # Pad events for fixed event count per batch
         # Words per event already padded to max_word_len on data creation
+        
+        
         seq_sizes = []
         for s in input['input_ids']:
            seq_sizes.append(len(s))
 
         target_seq_size = min(max(seq_sizes), self.max_seq_len) 
-
+        
         collated_input = dict()
         for k in input.keys():
             collated_input[k] = torch.zeros(
@@ -277,15 +305,20 @@ class HierarchicalEHRDataset(EHRDataset):
 
             diff = seq_size - target_seq_size
             for k in input.keys():
-                if k == 'input_ids':
+                
+                if k == 'input_ids' and self.args.emb_type=='textbase':
                     prefix = 101
+                elif k == "input_ids" and self.args.emb_type=='codebase':
+                    prefix = 1 
+                    
                 elif k == "type_ids":
                     prefix = 5 
+                    
                 elif k == "dpe_ids":
                     prefix = 0
 
                 if diff == 0:
-                    collated_input[k][i] = torch.from_numpy(input[k][i])
+                    collated_input[k][i] = torch.from_numpy(input[k][i][:, :self.max_word_len])
                 elif diff < 0:
                     padding = np.zeros((-diff, self.max_word_len - 1,))
                     padding = np.concatenate(
@@ -293,10 +326,10 @@ class HierarchicalEHRDataset(EHRDataset):
                     )
                     collated_input[k][i] = torch.from_numpy(
                             np.concatenate(
-                            [input[k][i], padding], axis=0
+                            [input[k][i][:, :self.max_word_len], padding], axis=0
                         )
                     )
-
+       
         #TODO: 위와 코드 로직 합치기
         if 'pretrain' in self.train_task and self.pretrain_task == "simclr":
             collated_input['times'] = torch.from_numpy(np.stack([self.pad_to_max_size(j.astype(np.float64), target_seq_size) for s in samples for j in s['times']]))
@@ -330,13 +363,24 @@ class HierarchicalEHRDataset(EHRDataset):
         else:
             fname = str(int(self.hit_idcs[index])) + '.pkl' 
         data = pd.read_pickle(os.path.join(self.data_dir, fname))
-
+        
+        
         pack = {
             'input_ids': data[self.structure][:, 0, :],
             'type_ids': data[self.structure][:, 1, :],
             'dpe_ids': data[self.structure][:, 2, :],
             'times': data['time'],
         }
+        
+        src_split = self.args.train_src.split('_')
+        if self.args.emb_type =='codebase' and src_split.index(self.ehr) !=0:
+            code_pos_idx = src_split.index(self.ehr)
+            if code_pos_idx ==1:
+                add_int = self.codebook_size[self.args.feature][src_split[0]] 
+            elif code_pos_idx ==2:
+                add_int = self.codebook_size[self.args.feature][src_split[0]] + self.codebook_size[self.args.feature][src_split[1]]
+            pack['input_ids'] = torch.where(pack['input_ids'] >2, pack['input_ids']+add_int, pack['input_ids'])
+        
         
         # Labels
         if self.train_task in ["scratch", "finetune"]: 
@@ -463,7 +507,7 @@ class FlattenEHRDataset(EHRDataset):
 
         input = dict()
         out = dict()
-
+        
         if self.pretrain_task == "simclr": # Make positive pair adjacent (B -> 2*B)
             input['input_ids'] = [j for s in samples for j in s['input_ids']]
             input['type_ids'] = [j for s in samples for j in s['type_ids']]
@@ -472,7 +516,8 @@ class FlattenEHRDataset(EHRDataset):
             input['input_ids'] = [s['input_ids'] for s in samples]
             input['type_ids'] = [s['type_ids'] for s in samples]
             input['dpe_ids'] = [s['dpe_ids'] for s in samples]
-
+            
+            
         if self.mask:
             for victim in self.mask_list:
                 if self.pretrain_task == "simclr":
@@ -486,7 +531,7 @@ class FlattenEHRDataset(EHRDataset):
         collated_input = dict()
         for k in input.keys():
             collated_input[k] = torch.zeros((len(input['input_ids']), target_size)).long()
-
+        
         for i, size in enumerate(sizes):
             diff = size - target_size
             if diff > 0:
@@ -502,41 +547,72 @@ class FlattenEHRDataset(EHRDataset):
                     )
                 else:
                     collated_input[k][i] = torch.LongTensor(input[k][i][start:end])
-
+        
+        collated_input['times'] = torch.from_numpy(np.stack([self.pad_to_max_size(s['times'], 256) for s in samples]))
         out['net_input'] = collated_input
-        if 'label' in samples[0]:
-            out['label'] = torch.stack([s['label'] for s in samples])
+        
+        out['icustays'] = [s['icustays'] for s in samples]
+        if 'labels' in samples[0].keys():
+            label_dict = dict()
+
+            for k in samples[0]['labels'].keys():
+                label_dict[k] = torch.stack([s['labels'][k] for s in samples])
+            
+            out['labels'] = label_dict
 
         return out
 
     def __getitem__(self, index):
-        fname = str(self.hit_idcs[index]) + '.npy'
-
-        input_ids = np.load(os.path.join(self.data_dir, 'input_ids', fname), allow_pickle=True)
-        type_ids = np.load(os.path.join(self.data_dir, 'type_ids', fname), allow_pickle=True)
-        dpe_ids = np.load(os.path.join(self.data_dir, 'dpe_ids', fname), allow_pickle=True)
-        
-        if self.train_task in['scratch', 'finetune']:
-            label = self.label[index]
-
-            out = {
-                'input_ids': input_ids,
-                'type_ids': type_ids,
-                'dpe_ids': dpe_ids,
-                'label': label,
-            }
+        if self.train_task =='sampled_pretrain': 
+            fname = self.hit_idcs[index] + '.pkl' 
         else:
-            out = {
-                'input_ids': input_ids,
-                'type_ids': type_ids,
-                'dpe_ids': dpe_ids,
-            }
+            fname = str(int(self.hit_idcs[index])) + '.pkl' 
+        data = pd.read_pickle(os.path.join(self.data_dir, fname))
+        
+        pack = {
+            'input_ids': data[self.structure][0, :],
+            'type_ids': data[self.structure][1, :],
+            'dpe_ids': data[self.structure][2, :],
+            'times': data['time'],
+        }
+        
+        # Labels
+        if self.train_task in ["scratch", "finetune"]: 
+            labels = dict()
+            for task in self.pred_tasks:
+                task_name = task.name
+                task_prop = task.property
+                task_class = task.num_classes
+                labels[task_name] = self.fold_file[self.fold_file[self.stay_id] == self.hit_idcs[index]][task_name].values[0]
+                if task_prop == "binary":
+                    labels[task_name] = torch.tensor(labels[task_name], dtype=torch.float32)
+                
+                elif task_prop == "multi-label":
+                    if task_name == 'diagnosis':
+                        if labels[task_name] == -1 or labels[task_name]=='[]':
+                            labels[task_name] = torch.zeros(task_class, dtype=torch.float32)
+                            #labels[task_name] = torch.tensor([-100]*task_class, dtype=torch.float32)
+                        else:
+                            labels[task_name] = eval(labels[task_name]) #[3,5,2,1]
+                            labels[task_name] = F.one_hot(torch.tensor(labels[task_name], dtype=torch.int64), num_classes=task_class).sum(dim=0).to(torch.float32)
+     
+                elif task_prop == "multi-class":
+                    # Missing values are filled with -1 or Nan
+                    if labels[task_name] == -1 or np.isnan(labels[task_name]):
+                        labels[task_name] = torch.zeros(task_class).to(torch.float32)
+                        #labels[task_name] = torch.torch.tensor(-100, dtype=torch.int64)
+                    else:
+                        labels[task_name] = F.one_hot(torch.tensor(labels[task_name]).to(torch.int64), num_classes=task_class).to(torch.float32)
+                        #labels[task_name] = torch.tensor(labels[task_name], dtype=torch.int64)
 
+            pack['labels'] = labels
+            pack['icustays'] = self.hit_idcs[index]
+            
         if self.mask:
             masked_indices = None
             for victim in self.mask_list:
                 victim_ids, victim_label = self.mask(
-                    inputs=out[victim + '_ids'],
+                    inputs=pack[victim + '_ids'],
                     mask_vocab_size=self.mask_vocab_size[victim],
                     mask_token=self.mask_token[victim],
                     special_tokens_mask=None,
@@ -544,22 +620,24 @@ class FlattenEHRDataset(EHRDataset):
                 )
                 if masked_indices is None:
                     masked_indices = torch.tensor(victim_label!= -100)
-                out[victim + '_ids'] = victim_ids
-                out[victim + '_label'] = victim_label
-        else:
-            time_token_idcs = np.where(
-                np.array(type_ids) == self.time_token
-            )[0]
+                pack[victim + '_ids'] = victim_ids
+                pack[victim + '_label'] = victim_label
 
         if self.pretrain_task == "simclr":
             unique, counts = np.unique(type_ids, return_counts=True)
             half_event_count = int(dict(zip(unique, counts))[4]/2)
             half_len = [i_i for i_i, n_i in enumerate(type_ids) if n_i == 4][half_event_count - 1]
             for victim in ['input', 'type', 'dpe']:
-                out[victim + '_ids'] = np.array([out[victim + '_ids'][:half_len+1], out[victim + '_ids'][half_len+1:]])
+                pack[victim + '_ids'] = np.array(pack[[victim + '_ids'][:half_len+1], pack[victim + '_ids'][half_len+1:]])
                 if victim in self.mask_list:
-                    out[victim + '_label'] = np.array([out[victim + '_label'][:half_len+1], out[victim + '_label'][half_len+1:]])
+                    pack[victim + '_label'] = np.array(pack[[victim + '_label'][:half_len+1], pack[victim + '_label'][half_len+1:]])
 
 
-        return out
+        return pack
 
+    def pad_to_max_size(self, sample, max_len):
+        if len(sample) < max_len:
+            sample = np.concatenate(
+                [sample, np.zeros(max_len - len(sample), dtype=np.int16)]
+            )
+        return sample

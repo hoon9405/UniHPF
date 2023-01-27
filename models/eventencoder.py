@@ -38,10 +38,11 @@ class EventEncoder(nn.Module):
     @property
     def _enc_model(self):
         return MODEL_REGISTRY['descemb']
-
+            
     def forward(self, input_ids, **kwargs):
       
         B, S, _= input_ids.size()
+        
         x = self.enc_model(input_ids, **kwargs) # (B*S, W, E)
      
         # True for padded words on each event
@@ -49,10 +50,13 @@ class EventEncoder(nn.Module):
         # (B*S, W, E) -> (B*S, W, E)
         # For each word, attend to all other non-pad words in the same event
         #TODO: src_key_padding_mask vs. src_pad_mask
+        
         encoder_output = self.transformer_encoder(x, src_key_padding_mask=src_pad_mask)
 
         x = encoder_output
         # zero out padded words idcs
+        if src_pad_mask.shape != x.shape:
+            src_pad_mask = src_pad_mask[:, :x.shape[1]]
         x[src_pad_mask] = 0
         # non pad word-level mean pooling on each event (B*S, W, E) -> (B*S, E)
         x = torch.div(x.sum(dim=1), (x!=0).sum(dim=1))

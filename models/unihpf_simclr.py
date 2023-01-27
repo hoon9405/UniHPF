@@ -35,8 +35,20 @@ class UniHPF_SimCLR(nn.Module):
         return cls(args)
 
     @classmethod
-    def from_pretrained(cls, args, state_dict=0):
+    def from_pretrained(cls, args, checkpoint=None, state_dict=None):
         model = cls(args)
+
+        if state_dict is None: 
+            state_dict = torch.load(checkpoint, map_location='cpu')['model']     
+        
+        #Transfer learning codebase emb
+        if args.train_task =='finetune' and args.emb_type=='codebase':
+            state_dict = {
+                    k: v for k,v in state_dict.items() if (
+                        ('input2emb' not in k) and ('pos_enc' not in k)
+                    )
+                }
+        
         model.load_state_dict(state_dict)
     
         return model 

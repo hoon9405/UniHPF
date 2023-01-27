@@ -217,6 +217,10 @@ class AUCMeter(Meter):
         y_score = np.concatenate(self.scores)
         # if y_true.shape != y_score.shape:
         #     y_true = np.eye(y_score.shape[1])[y_true]
+        if y_true.shape[0] > 127 and len(y_true.shape) >1:
+            mask = (y_true.sum(axis=0)!=0)
+            y_true = y_true[:, mask]
+            y_score = y_score[:, mask]
         try:
             return roc_auc_score(y_true=y_true, y_score=y_score, average='macro')
         except ValueError:
