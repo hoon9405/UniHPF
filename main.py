@@ -41,13 +41,13 @@ import types
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    #parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
-    parser.add_argument('--input_path', type=str, default='/home/ghhur/.cache/ehr/')
+    parser.add_argument('--input_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/input/')
+    #parser.add_argument('--input_path', type=str, default='/home/ghhur/.cache/ehr/')
     #parser.add_argument('--input_path', type=str, default='/nfs_edlab/ghhur/UniHPF/input_test2/')
     #parser.add_argument('--input_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/input')
     #parser.add_argument('--input_path', type=str, default='/home/jykim/no_time_filter_data_augment')
-    #parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
-    parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
+    parser.add_argument('--output_path', type=str, default='/mnt/hdd-nfs/ghhur/project/unihpf/output')
+    #parser.add_argument('--output_path', type=str, default='/nfs_edlab/ghhur/UniHPF/output')
     #parser.add_argument('--output_path', type=str, default='/home/edlab/jykim/UniHPF_pretrain/output')
     # parser.add_argument('--output_path', type=str, default='/home/jykim/UniHPF_pretrain/checkpoints/20220909')
     parser.add_argument('--load_checkpoint', type=str, default=None)
@@ -452,7 +452,7 @@ def main(args) -> None:
                 )
             dataloaders[split].update({dataname: dataloader})
             samplers[split].update({dataname: sampler})
-        
+            print(f'split : {split}, dataname : {dataname}, len : {len(dataloader)}')
     logger.info(f'{args.train_task}, {data_split}, {dataloaders}')
   
     # trainer build
@@ -582,7 +582,7 @@ def train(args, trainer, cum_data_count, epoch_itr, epoch, sampler, validation):
     for i, sample in enumerate(epoch_itr['train'][args.train_src]):
         with metrics.aggregate('train_inner'):
             log_output = trainer.train_step(sample)
-
+        
         if log_output is not None:
             num_updates = trainer.get_num_updates()
             if num_updates % args.log_interval == 0:
@@ -710,8 +710,8 @@ def validate(args, trainer, epoch_itr, valid_subset, dataname):
             
 
     stats = multi_task_avg(args, agg.get_smoothed_values(), dataname, metrics=['auroc', 'auprc'])
-
-    stats = get_valid_stats(args, trainer, valid_subset, dataname, stats)
+    if valid_subset !='test':
+        stats = get_valid_stats(args, trainer, valid_subset, dataname, stats)
     
     progress_print(args, stats, tag=valid_subset, prefix=f'valid on {valid_subset} subset, data {dataname}', log_wandb=args.wandb)
     valid_losses.append(stats[f'{dataname}_{args.best_checkpoint_metric}'])
@@ -727,19 +727,19 @@ def multi_task_avg(args, stats, dataname, metrics):
 def get_valid_stats(args, trainer, subset, dataname, stats):
     stats['num_updates'] = trainer.get_num_updates()
     
-    if not hasattr(get_valid_stats, 'best'):
-        get_valid_stats.best = dict()
+    if not hasattr(get_valid_stats, f'best_{dataname}'):
+        setattr(get_valid_stats, f'best_{dataname}', dict())
     
-    prev_best = getattr(get_valid_stats, 'best').get(
+    prev_best = getattr(get_valid_stats, f'best_{dataname}').get(
         subset, stats[f'{dataname}_{args.best_checkpoint_metric}']
     )
     best_function = max if args.maximize_best_checkpoint_metric else min
-    get_valid_stats.best[subset] = best_function(
+    getattr(get_valid_stats, f'best_{dataname}')[subset] = best_function(
         stats[f'{dataname}_{args.best_checkpoint_metric}'], prev_best
     )
 
-    key = 'best_{0}'.format(f'{dataname}_{args.best_checkpoint_metric}')
-    stats[key] = get_valid_stats.best[subset]
+    key = f'best_{dataname}_{args.best_checkpoint_metric}'
+    stats[key] = getattr(get_valid_stats, f'best_{dataname}')[subset]
 
     return stats
 

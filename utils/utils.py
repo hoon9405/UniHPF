@@ -122,7 +122,7 @@ class set_torch_seed(object):
 
 def should_stop_early(patience, dataname, metric: float, descending=True) -> bool:
     is_better = lambda x,y: x < y if descending else x > y
-
+    
     prev_best = getattr(should_stop_early, "best", {})
     
     if len(prev_best.keys())==0:

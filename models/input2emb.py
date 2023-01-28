@@ -26,19 +26,19 @@ class DescEmb(nn.Module):
             'mimiciii': 10435,
             'eicu': 6798,
             'mimiciv': 10492,
-            'mimiciii_eicu': 0,
-            'eicu_mimiciv': 0,
-            'mimiciii_mimiciv': 0,
-            'mimiciii_eicu_mimiciv': 0 
+            'mimiciii_eicu': 10435+6798,
+            'eicu_mimiciv': 6798+10492,
+            'mimiciii_mimiciv': 10435+10492,
+            'mimiciii_eicu_mimiciv': 10435+6798+10492 
             },
         'select':{
             'mimiciii': 6371,
             'eicu': 5705,
             'mimiciv': 5809,
-            'mimiciii_eicu': 0,
-            'eicu_mimiciv': 0,
-            'mimiciii_mimiciv': 0,
-            'mimiciii_eicu_mimiciv': 0    
+            'mimiciii_eicu': 6371+5705,
+            'eicu_mimiciv': 5705+5809,
+            'mimiciii_mimiciv': 6371+5809,
+            'mimiciii_eicu_mimiciv': 6371+5705+5809    
             }
         }
         if self.args.emb_type =='textbase':
@@ -46,6 +46,7 @@ class DescEmb(nn.Module):
             self.type_index_size = 7 
             self.dpe_index_size = 16
         else:
+
             self.input_index_size = codebook_size[args.feature][args.train_src] # bio clinical bert vocab
             self.type_index_size = 7 
             
@@ -89,7 +90,7 @@ class DescEmb(nn.Module):
         B, S = input_ids.shape[0], input_ids.shape[1] # time: hi - (B, S, 1), fl - (B, S, 1)
         
         x = self.input_ids_embedding(input_ids)
-
+        
         if only_features:
             if self.pos_encoder:
                 x = self.pos_encoder(x)
