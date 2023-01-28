@@ -438,8 +438,8 @@ def main(args) -> None:
             datanames = args.eval_src
                         
         for dataname in datanames:
+            concat_list = [] 
             for data in dataname.split('_'):
-                concat_list = [] 
                 dataset= load_dataset(args, split, data, args.seed)
                 concat_list.append(dataset)
                 logger.info(f'{split}, {len(dataset)}')
@@ -450,6 +450,7 @@ def main(args) -> None:
                 args.seed[0], 
                 concat_list[0].collator
                 )
+            print(f'split : {split}, dataname : {dataname}, len of dataloder, {len(dataloader)}')
             dataloaders[split].update({dataname: dataloader})
             samplers[split].update({dataname: sampler})
         
