@@ -87,23 +87,15 @@ class BaseEHRDataset(torch.utils.data.Dataset):
         'whole':{
             'mimiciii': 10435,
             'eicu': 6798,
-            'mimiciv': 10492,
-            'mimiciii_eicu': 0,
-            'eicu_mimiciv': 0,
-            'mimiciii_mimiciv': 0,
-            'mimiciii_eicu_mimiciv': 0 
+            'mimiciv': 10492, 
             },
         'select':{
             'mimiciii': 6371,
             'eicu': 5705,
-            'mimiciv': 5809,
-            'mimiciii_eicu': 0,
-            'eicu_mimiciv': 0,
-            'mimiciii_mimiciv': 0,
-            'mimiciii_eicu_mimiciv': 0    
+            'mimiciv': 5809,  
             }
         }
-        self.total_codebook_size = self.codebook_size[args.feature][args.train_src]
+        
         logger.info(f'loaded {len(self.hit_idcs)} {self.split} samples')
 
     def __len__(self):
@@ -379,7 +371,7 @@ class HierarchicalEHRDataset(EHRDataset):
                 add_int = self.codebook_size[self.args.feature][src_split[0]] 
             elif code_pos_idx ==2:
                 add_int = self.codebook_size[self.args.feature][src_split[0]] + self.codebook_size[self.args.feature][src_split[1]]
-            pack['input_ids'] = torch.where(pack['input_ids'] >2, pack['input_ids']+add_int, pack['input_ids'])
+            pack['input_ids'] = np.where(pack['input_ids'] >2, pack['input_ids']+add_int, pack['input_ids'])
         
         
         # Labels
