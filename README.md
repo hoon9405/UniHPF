@@ -1,3 +1,7 @@
+# Outdated! Please visit https://github.com/hoon9405/GenHPF for the newest Version.
+
+<br/><br/>
+
 # UniHPF : Universal Healthcare Predictive Framework with Zero Domain Knowledge
 
 UniHPF is a universal healthcare predictive framework, which requires no medical domain knowledge and minimal preprocessing for multiple prediction tasks. Given any time-series EHR, 		 	 	 			
